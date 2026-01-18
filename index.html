@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IOCN Quality Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState } = React;
+    const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } = Recharts;
+
+    // Rating badge component
+    const RatingBadge = ({ rating }) => {
+      const configs = {
+        good: { bg: 'bg-green-100', text: 'text-green-800', label: '✓ Good' },
+        acceptable: { bg: 'bg-blue-100', text: 'text-blue-800', label: '○ Acceptable' },
+        monitor: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: '⚠ Monitor' },
+        concern: { bg: 'bg-orange-100', text: 'text-orange-800', label: '⚡ Concern' },
+        critical: { bg: 'bg-red-100', text: 'text-red-800', label: '🚨 Critical' },
+        unknown: { bg: 'bg-gray-100', text: 'text-gray-600', label: '? Unknown' },
+        info: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'ℹ Info' },
+      };
+      const config = configs[rating] || configs.info;
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+          {config.label}
+        </span>
+      );
+    };
+
+    // Indicator definitions
+    const indicators = {
+      volume: {
+        title: "Volume & Activity",
+        color: "#3B82F6",
+        metrics: [
+          { id: "total_cases", name: "Total Cases (Episodes)", value: "97,271", rating: "info",
+            what: "Total count of patient care episodes during 2020-2025.",
+            benchmark: "Volume metric. ~19,000 cases/year for specialized oncology institute." },
+          { id: "unique_patients", name: "Unique Patients", value: "19,635", rating: "info",
+            what: "Count of distinct patients served. One patient with 5 visits = 1 unique patient.",
+            benchmark: "4.95 visits per patient on average - typical for chemotherapy cycles." },
+          { id: "procedures_per_case", name: "Procedures per Case", value: "3.07", rating: "acceptable",
+            what: "Average number of medical procedures per episode.",
+            benchmark: "3.07 is reasonable for oncology treatment." },
+          { id: "active_physicians", name: "Active Physicians", value: "180", rating: "info",
+            what: "Physicians who treated at least one patient.",
+            benchmark: "~108 cases/physician/year average workload." }
+        ]
+      },
+      casemix: {
+        title: "Case-Mix & Demographics",
+        color: "#10B981",
+        metrics: [
+          { id: "breast_cancer", name: "Breast Cancer (C50.9)", value: "23,788 (24.5%)", rating: "info",
+            what: "Most common cancer type. Nearly 1 in 4 cases.",
+            benchmark: "Consistent with EU statistics (25% of female cancers)." },
+          { id: "mean_age", name: "Mean Patient Age", value: "59.1 years", rating: "acceptable",
+            what: "Average age at admission.",
+            benchmark: "Typical for comprehensive cancer center." },
+          { id: "elderly_rate", name: "Elderly Rate (>65 years)", value: "40.6%", rating: "monitor",
+            what: "Patients aged over 65 years.",
+            benchmark: "EU average 50-60%. IOCN slightly below." },
+          { id: "pediatric_rate", name: "Pediatric Rate (<18 years)", value: "2.0%", rating: "acceptable",
+            what: "Patients under 18 years.",
+            benchmark: "Within expected 1-3% range." }
+        ]
+      },
+      los: {
+        title: "Length of Stay (LOS)",
+        color: "#F59E0B",
+        metrics: [
+          { id: "mean_los", name: "Mean Inpatient LOS", value: "11.29 days", rating: "acceptable",
+            what: "Average days from admission to discharge for inpatients.",
+            benchmark: "OECD EU: 7-8 days general. Oncology surgery: 10-14 days. IOCN within range." },
+          { id: "median_los", name: "Median Inpatient LOS", value: "8.86 days", rating: "acceptable",
+            what: "Middle value - 50% stay shorter, 50% longer.",
+            benchmark: "Median < Mean indicates some patients have very long stays (skewed distribution)." },
+          { id: "extended_stay", name: "Extended Stay Rate (>14 days)", value: "24.4%", rating: "monitor",
+            what: "Cases staying more than 14 days.",
+            benchmark: "TARGET: <20%. IOCN slightly above - monitor for causes." },
+          { id: "very_long_stay", name: "Very Long Stay (>21 days)", value: "11.9%", rating: "monitor",
+            what: "Cases staying more than 21 days (3 weeks).",
+            benchmark: "TARGET: <10%. IOCN slightly above - review these cases." }
+        ]
+      },
+      icu: {
+        title: "ICU / Critical Care (ATI)",
+        color: "#EF4444",
+        metrics: [
+          { id: "icu_admissions", name: "ICU Admissions", value: "2,048", rating: "info",
+            what: "Total ICU/ATI admissions. ATI = Anestezie și Terapie Intensivă.",
+            benchmark: "Volume metric for critical care capacity." },
+          { id: "mean_icu_stay", name: "Mean ICU Stay", value: "3.79 days", rating: "acceptable",
+            what: "Average days in ICU per admission.",
+            benchmark: "1-3 days routine, 3-7 days major surgery. IOCN acceptable." },
+          { id: "prolonged_icu", name: "Prolonged ICU Rate (>5 days)", value: "20.2%", rating: "concern",
+            what: "ICU stays exceeding 5 days.",
+            benchmark: "TARGET: <15%. IOCN at 20.2% - investigate causes." },
+          { id: "surgery_to_icu", name: "Surgery-to-ICU Transfer Rate", value: "85.2%", rating: "unknown",
+            what: "Surgical cases transferred to ICU.",
+            benchmark: "⚠️ NEEDS CLARIFICATION: Is this protocol (routine post-op monitoring) or complications?" }
+        ]
+      },
+      continuity: {
+        title: "Treatment Continuity",
+        color: "#8B5CF6",
+        metrics: [
+          { id: "return_30d", name: "30-Day Return Rate", value: "80.4%", rating: "good",
+            what: "Visits followed by another visit within 30 days.",
+            benchmark: "HIGH rate EXPECTED in oncology (chemo cycles every 2-3 weeks)." },
+          { id: "median_gap", name: "Median Inter-Visit Gap", value: "14 days", rating: "good",
+            what: "Middle value of days between consecutive visits.",
+            benchmark: "14 days matches typical chemotherapy cycle." },
+          { id: "treatment_break", name: "Treatment Break Rate (>60 days)", value: "11.4%", rating: "concern",
+            what: "Gaps exceeding 60 days between visits.",
+            benchmark: "TARGET: <10%. 8,869 gaps need investigation - lost to follow-up?" },
+          { id: "physician_continuity", name: "Same Physician Continuity", value: "46.5%", rating: "concern",
+            what: "Patients seeing same physician across all visits.",
+            benchmark: "TARGET: >60%. Half of patients see different physicians." }
+        ]
+      },
+      complications: {
+        title: "Complication Indicators",
+        color: "#EC4899",
+        metrics: [
+          { id: "secondary_dx", name: "Secondary Diagnosis Rate", value: "8.8%", rating: "monitor",
+            what: "Cases with at least one secondary diagnosis recorded.",
+            benchmark: "Expected 20-40%. 8.8% suggests under-documentation." },
+          { id: "anemia_rate", name: "Anemia Rate (D50.9)", value: "6.4%", rating: "monitor",
+            what: "Cases with iron deficiency anemia documented.",
+            benchmark: "Literature: 30-90% prevalence in cancer. 6.4% is under-reported." },
+          { id: "complex_pathway", name: "Complex Pathway Rate (≥4 transfers)", value: "9.0%", rating: "acceptable",
+            what: "Inpatients moving through 4+ departments.",
+            benchmark: "TARGET: <15%. IOCN within acceptable range." }
+        ]
+      },
+      dataquality: {
+        title: "Data Quality",
+        color: "#6B7280",
+        metrics: [
+          { id: "missing_dx", name: "Missing Primary Diagnosis", value: "0%", rating: "good",
+            what: "Cases without ICD-10 diagnosis code.",
+            benchmark: "TARGET: 0%. ACHIEVED - excellent." },
+          { id: "data_complete", name: "Data Completeness", value: "100%", rating: "good",
+            what: "Records with all required fields.",
+            benchmark: "Excellent data quality for available fields." },
+          { id: "discharge_outcome", name: "Discharge Outcome", value: "❌ NOT AVAILABLE", rating: "critical",
+            what: "We do NOT know what happens when patients are discharged.",
+            benchmark: "CRITICAL GAP: Cannot determine home/transfer/deceased. Required for accreditation." },
+          { id: "mortality_data", name: "Mortality Data", value: "❌ NOT AVAILABLE", rating: "critical",
+            what: "No death dates recorded.",
+            benchmark: "CRITICAL GAP: Cannot calculate survival rates or mortality." }
+        ]
+      }
+    };
+
+    // Chart data
+    const cancerData = [
+      { name: 'Breast', cases: 23788, pct: 24.5 },
+      { name: 'Cervical', cases: 5803, pct: 6.0 },
+      { name: 'Lung', cases: 5097, pct: 5.2 },
+      { name: 'Ovarian', cases: 3840, pct: 3.9 },
+      { name: 'Prostate', cases: 3665, pct: 3.8 },
+      { name: 'Rectal', cases: 2825, pct: 2.9 },
+      { name: 'Other', cases: 52253, pct: 53.7 }
+    ];
+
+    const monthlyData = [
+      { month: 'Jan', cases: 7613 }, { month: 'Feb', cases: 8000 },
+      { month: 'Mar', cases: 8362 }, { month: 'Apr', cases: 8800 },
+      { month: 'May', cases: 7728 }, { month: 'Jun', cases: 7745 },
+      { month: 'Jul', cases: 8623 }, { month: 'Aug', cases: 7438 },
+      { month: 'Sep', cases: 7827 }, { month: 'Oct', cases: 9123 },
+      { month: 'Nov', cases: 8451 }, { month: 'Dec', cases: 7557 }
+    ];
+
+    const gapData = [
+      { range: '<7d', count: 30344, pct: 39.1, color: '#22c55e' },
+      { range: '7-21d', count: 21564, pct: 27.8, color: '#22c55e' },
+      { range: '22-35d', count: 13047, pct: 16.8, color: '#eab308' },
+      { range: '36-60d', count: 3812, pct: 4.9, color: '#f97316' },
+      { range: '>60d', count: 8869, pct: 11.4, color: '#ef4444' }
+    ];
+
+    const pathwayStages = [
+      { id: 1, name: "Referral", status: "❌", problem: "No referral data", dataAvailable: false },
+      { id: 2, name: "Diagnosis", status: "❌", problem: "No TNM staging", dataAvailable: false },
+      { id: 3, name: "MDT Discussion", status: "❌", problem: "No MDT records", dataAvailable: false },
+      { id: 4, name: "Treatment Decision", status: "❌", problem: "No decision dates", dataAvailable: false },
+      { id: 5, name: "First Treatment", status: "⚠️", problem: "Have procedures, no referral link", dataAvailable: true },
+      { id: 6, name: "Inpatient Care", status: "✓", problem: null, dataAvailable: true },
+      { id: 7, name: "Discharge", status: "🚨", problem: "No outcome tracking", dataAvailable: false },
+      { id: 8, name: "Follow-up", status: "⚠️", problem: "11.4% treatment breaks", dataAvailable: true },
+      { id: 9, name: "Survival", status: "🚨", problem: "No mortality data", dataAvailable: false }
+    ];
+
+    // Expandable Card Component
+    const IndicatorCard = ({ metric }) => {
+      const [expanded, setExpanded] = useState(false);
+      return (
+        <div className="card p-4 mb-3 cursor-pointer hover:shadow-md transition-shadow" onClick={() => setExpanded(!expanded)}>
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-medium text-gray-900">{metric.name}</span>
+                <RatingBadge rating={metric.rating} />
+              </div>
+              <div className="text-2xl font-bold text-gray-800">{metric.value}</div>
+            </div>
+            <span className="text-gray-400 text-xl">{expanded ? '−' : '+'}</span>
+          </div>
+          {expanded && (
+            <div className="mt-4 pt-4 border-t border-gray-100 text-sm space-y-3">
+              <div>
+                <div className="font-semibold text-gray-700 mb-1">📖 What This Measures</div>
+                <div className="text-gray-600">{metric.what}</div>
+              </div>
+              <div>
+                <div className="font-semibold text-gray-700 mb-1">📊 Benchmark / Standard</div>
+                <div className="text-gray-600">{metric.benchmark}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // Main Dashboard Component
+    const Dashboard = () => {
+      const [activeTab, setActiveTab] = useState('overview');
+      
+      return (
+        <div className="min-h-screen bg-gray-50">
+          {/* Header */}
+          <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+            <div className="max-w-7xl mx-auto px-4 py-4">
+              <h1 className="text-2xl font-bold text-gray-900">IOCN Quality Dashboard</h1>
+              <p className="text-sm text-gray-500">Institutul Oncologic Prof. Dr. Ion Chiricuță Cluj-Napoca • 2020-2025 Data</p>
+              <div className="mt-2 text-xs text-gray-400">
+                LOS = Length of Stay | ICU = Intensive Care Unit (ATI) | MDT = Multidisciplinary Team | TNM = Tumor-Node-Metastasis staging
+              </div>
+            </div>
+            {/* Tabs */}
+            <div className="max-w-7xl mx-auto px-4 flex gap-4 border-t">
+              {['overview', 'pathway', 'charts', 'indicators'].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab 
+                      ? 'border-blue-500 text-blue-600' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 py-6">
+            {/* Overview Tab */}
+            {activeTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Alerts */}
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="card p-4 border-l-4 border-red-500">
+                    <h3 className="font-bold text-red-800 mb-2">🚨 Critical Issues</h3>
+                    <ul className="text-sm text-gray-700 space-y-1">
+                      <li>• <strong>Discharge outcomes</strong> not tracked - cannot measure mortality</li>
+                      <li>• <strong>Surgery→ICU 85.2%</strong> needs clarification (protocol or complications?)</li>
+                      <li>• <strong>No TNM staging</strong> - cannot risk-adjust outcomes</li>
+                    </ul>
+                  </div>
+                  <div className="card p-4 border-l-4 border-orange-500">
+                    <h3 className="font-bold text-orange-800 mb-2">⚡ Areas of Concern</h3>
+                    <ul className="text-sm text-gray-700 space-y-1">
+                      <li>• <strong>Treatment breaks 11.4%</strong> - 8,869 gaps >60 days</li>
+                      <li>• <strong>Prolonged ICU 20.2%</strong> - above 15% target</li>
+                      <li>• <strong>Physician continuity 46.5%</strong> - below 60% target</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Key Metrics */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="card p-4 text-center">
+                    <div className="text-3xl font-bold text-blue-600">97,271</div>
+                    <div className="text-sm text-gray-500">Total Cases</div>
+                  </div>
+                  <div className="card p-4 text-center">
+                    <div className="text-3xl font-bold text-green-600">19,635</div>
+                    <div className="text-sm text-gray-500">Unique Patients</div>
+                  </div>
+                  <div className="card p-4 text-center">
+                    <div className="text-3xl font-bold text-amber-600">11.29</div>
+                    <div className="text-sm text-gray-500">Mean LOS (days)</div>
+                  </div>
+                  <div className="card p-4 text-center">
+                    <div className="text-3xl font-bold text-purple-600">180</div>
+                    <div className="text-sm text-gray-500">Active Physicians</div>
+                  </div>
+                </div>
+
+                {/* Charts */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="card p-4">
+                    <h3 className="font-bold text-gray-900 mb-4">Cancer Type Distribution</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={cancerData} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={70} tick={{fontSize: 12}} />
+                        <Tooltip formatter={(value, name) => [value.toLocaleString(), 'Cases']} />
+                        <Bar dataKey="cases" fill="#3B82F6" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="card p-4">
+                    <h3 className="font-bold text-gray-900 mb-4">Monthly Case Volume (2024)</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <LineChart data={monthlyData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="month" tick={{fontSize: 12}} />
+                        <YAxis />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="cases" stroke="#10B981" strokeWidth={2} dot={{ r: 4 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Pathway Tab */}
+            {activeTab === 'pathway' && (
+              <div className="space-y-6">
+                <div className="card p-4">
+                  <h3 className="font-bold text-gray-900 mb-4">Cancer Patient Pathway - Data Availability</h3>
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {pathwayStages.map((stage, idx) => (
+                      <div key={stage.id} className="flex items-center">
+                        <div className={`px-3 py-2 rounded-lg text-sm font-medium ${
+                          stage.dataAvailable 
+                            ? stage.status === '✓' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          <span className="mr-1">{stage.status}</span>
+                          {stage.name}
+                        </div>
+                        {idx < pathwayStages.length - 1 && <span className="mx-2 text-gray-300">→</span>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    {pathwayStages.map(stage => (
+                      <div key={stage.id} className={`p-3 rounded-lg border ${
+                        stage.dataAvailable 
+                          ? stage.status === '✓' ? 'border-green-200 bg-green-50' : 'border-yellow-200 bg-yellow-50'
+                          : 'border-red-200 bg-red-50'
+                      }`}>
+                        <div className="font-medium text-gray-900">{stage.id}. {stage.name}</div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {stage.problem || 'Data available ✓'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <h3 className="font-bold text-gray-900 mb-2">Summary</h3>
+                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <div className="font-medium text-green-700 mb-1">✓ CAN Measure</div>
+                      <ul className="text-gray-600 space-y-1">
+                        <li>• Length of Stay, ICU utilization</li>
+                        <li>• Treatment continuity, readmissions</li>
+                        <li>• Case-mix, demographics, volume</li>
+                        <li>• Physician workload, data quality</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="font-medium text-red-700 mb-1">❌ CANNOT Measure</div>
+                      <ul className="text-gray-600 space-y-1">
+                        <li>• Referral-to-treatment time</li>
+                        <li>• Mortality / survival rates</li>
+                        <li>• Discharge outcomes</li>
+                        <li>• TNM staging, MDT discussions</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Charts Tab */}
+            {activeTab === 'charts' && (
+              <div className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="card p-4">
+                    <h3 className="font-bold text-gray-900 mb-4">Cancer Type Distribution</h3>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={cancerData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{fontSize: 11}} />
+                        <YAxis />
+                        <Tooltip formatter={(value) => [value.toLocaleString() + ' cases']} />
+                        <Bar dataKey="cases" fill="#E91E63" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-2 text-xs text-gray-500 text-center">
+                      {cancerData.map(d => `${d.name}: ${d.pct}%`).join(' | ')}
+                    </div>
+                  </div>
+                  <div className="card p-4">
+                    <h3 className="font-bold text-gray-900 mb-4">Inter-Visit Gap Distribution</h3>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={gapData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="range" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => [value.toLocaleString() + ' gaps']} />
+                        <Bar dataKey="count">
+                          {gapData.map((entry, index) => (
+                            <Recharts.Cell key={index} fill={entry.color} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-2 text-xs text-center">
+                      <span className="text-green-600">● Good (&lt;21d)</span>
+                      <span className="mx-2 text-yellow-600">● Monitor (22-35d)</span>
+                      <span className="mx-2 text-orange-600">● Concern (36-60d)</span>
+                      <span className="text-red-600">● Critical (&gt;60d)</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <h3 className="font-bold text-gray-900 mb-4">Monthly Case Volume Trend (2024)</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={monthlyData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis domain={[6000, 10000]} />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="cases" stroke="#3B82F6" strokeWidth={2} name="Cases" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* All Indicators Tab */}
+            {activeTab === 'indicators' && (
+              <div className="space-y-6">
+                {Object.entries(indicators).map(([key, category]) => (
+                  <div key={key} className="card p-4">
+                    <h3 className="font-bold text-lg mb-4" style={{color: category.color}}>
+                      {category.title}
+                    </h3>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {category.metrics.map(metric => (
+                        <IndicatorCard key={metric.id} metric={metric} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </main>
+
+          {/* Footer */}
+          <footer className="bg-gray-100 border-t mt-8 py-4">
+            <div className="max-w-7xl mx-auto px-4 text-center text-xs text-gray-500">
+              <p>IOCN Quality Indicators Dashboard • Data Period: 2020-2025 • 97,271 cases analyzed</p>
+              <p className="mt-1">LOS = Length of Stay | ICU = Intensive Care Unit | ATI = Anestezie și Terapie Intensivă | MDT = Multidisciplinary Team</p>
+            </div>
+          </footer>
+        </div>
+      );
+    };
+
+    // Render
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Dashboard />);
+  </script>
+</body>
+</html>
